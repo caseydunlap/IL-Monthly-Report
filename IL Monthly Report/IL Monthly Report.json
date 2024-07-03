@@ -1,0 +1,34 @@
+{
+  "name" : "IL Monthly Report",
+  "jobMode" : "SCRIPT",
+  "description" : "",
+  "role" : "arn:aws:iam::123073001123:role/bianalytics_etlglue_role",
+  "executionProperty" : {
+    "maxConcurrentRuns" : 1
+  },
+  "command" : {
+    "name" : "pythonshell",
+    "scriptLocation" : "s3://aws-glue-assets-123073001123-us-east-1/scripts/IL Monthly Report.py",
+    "pythonVersion" : "3.9"
+  },
+  "defaultArguments" : {
+    "--enable-job-insights" : "false",
+    "--job-language" : "python",
+    "--TempDir" : "s3://aws-glue-assets-123073001123-us-east-1/temporary/",
+    "--additional-python-modules" : "python-dateutil==2.9.0,pytz==2024.1,openpyxl==3.1.3,boto3>=1.28",
+    "--enable-glue-datacatalog" : "true",
+    "library-set" : "analytics"
+  },
+  "maxRetries" : 0,
+  "allocatedCapacity" : 0,
+  "timeout" : 2880,
+  "maxCapacity" : 1.0,
+  "glueVersion" : "3.0",
+  "executionClass" : "STANDARD",
+  "sourceControlDetails" : {
+    "provider" : "GITHUB",
+    "repository" : "IL-Monthly-Report",
+    "branch" : "main",
+    "folder" : "IL Monthly Report"
+  }
+}
