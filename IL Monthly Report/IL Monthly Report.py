@@ -516,8 +516,7 @@ access_token = response.json().get('access_token')
 #The email is going to come from my email
 from_email = 'mdunlap@hhaexchange.com'
 #Email recipients
-#to_email = ['cward@hhaexchange.com', 'dsweeney@hhaexchange.com','tprause@hhaexchange.com','sbowen@hhaexchange.com']
-to_email = ['mdunlap@hhaexchange.com','mhirrlinger@hhaexchange.com']
+to_email = ['cward@hhaexchange.com', 'dsweeney@hhaexchange.com','tprause@hhaexchange.com','sbowen@hhaexchange.com']
 subject = 'IL Monthly Report' + ' '+ '-' +' '+ date_string
 body = 'IL Monthly Report' + ' '+ '-' + ' '+ date_string
 
