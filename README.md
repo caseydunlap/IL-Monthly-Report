@@ -24,22 +24,22 @@ Contains definitions for each applicable stage for ticket project types (HHA, RC
 ### JIRA
 
 A comprehensive report of all tickets created in Illinois within the reporting month, including the following fields:
-  key: A unique identifier for each ticket.
-  reporter: External party who raised the issue with HHAeXchange.
-  hhax_platform_region_tag: Internal geographic identifier tag associated with the provider who raised the issue with HHAeXchange.
-  state: State associated with the provider who raised the issue with HHAeXchange.
-  primary_location: State associated with the provider who raised the issue with HHAeXchange.
-  hhax_market: State associated with the provider who raised the issue with HHAeXchange.
-  associations: Provider associated with the issue raised with HHAeXchange.
-  create_date: The date the issue was created in JIRA.
-  resolved_date: The date the issue was resolved in JIRA.
-  updated: The date of the last update made on the issue at the time of report compilation.
-  payer: Payers associated with the provider who raised the issue with HHAeXchange.
-  status: Status of the JIRA issue at the time of report compilation.
-  summary: Brief summary of the issues.
-  tax_id: Federal tax number associated with the provider who raised the issue with HHAeXchange.
-  closed_via_automation: Boolean indicating if a ticket was closed due to provider non-response.
-  response_time_(mins): The amount of time, in minutes, it took for HHAeXchange to respond to the provider's issue.
+  - key: A unique identifier for each ticket.
+  - reporter: External party who raised the issue with HHAeXchange.
+  - hhax_platform_region_tag: Internal geographic identifier tag associated with the provider who raised the issue with HHAeXchange.
+  - state: State associated with the provider who raised the issue with HHAeXchange.
+  - primary_location: State associated with the provider who raised the issue with HHAeXchange.
+  - hhax_market: State associated with the provider who raised the issue with HHAeXchange.
+  -  associations: Provider associated with the issue raised with HHAeXchange.
+  - create_date: The date the issue was created in JIRA.
+  - resolved_date: The date the issue was resolved in JIRA.
+  - updated: The date of the last update made on the issue at the time of report compilation.
+  - payer: Payers associated with the provider who raised the issue with HHAeXchange.
+  - status: Status of the JIRA issue at the time of report compilation.
+  - summary: Brief summary of the issues.
+  - tax_id: Federal tax number associated with the provider who raised the issue with HHAeXchange.
+  - closed_via_automation: Boolean indicating if a ticket was closed due to provider non-response.
+  - response_time_(mins): The amount of time, in minutes, it took for HHAeXchange to respond to the provider's issue.
 
 ### JIRA Summary
 
