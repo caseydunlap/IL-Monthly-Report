@@ -17,7 +17,7 @@ Since there is no specific setup or installation process required, this tool wil
 **The script runs once a month, specifically on the 1st of each month at 8am EST. Reports are generated and sent via email.**
 
 ## File Tabs
-### Stages
+### Statuses
 
 Contains definitions for each applicable stage for ticket project types (HHA, RCOSD, ESD, EISD, EAS).
 
@@ -40,7 +40,7 @@ A comprehensive report of all tickets created in Illinois within the reporting m
   closed_via_automation: Boolean indicating if a ticket was closed due to provider non-response.
   response_time_(mins): The amount of time, in minutes, it took for HHAeXchange to respond to the provider's issue.
 
-### JIRA
+### JIRA Summary
 A report summarizing tickets created by day within the reporting period, pivoted by project type. It includes a 'closed' column, capturing the number of tickets created on that day that are closed or resolved as of the time of report compilation.
 
 ### AWS
