@@ -6,7 +6,7 @@
 
 ## Prerequisites
 
-**No prerequisites or system requirements are needed.**
+No prerequisites or system requirements are needed.**
 
 ## Setup and Installation
 
