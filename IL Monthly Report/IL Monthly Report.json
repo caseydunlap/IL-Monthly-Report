@@ -13,11 +13,12 @@
   },
   "defaultArguments" : {
     "--enable-job-insights" : "false",
-    "--job-language" : "python",
-    "--TempDir" : "s3://aws-glue-assets-123073001123-us-east-1/temporary/",
     "--additional-python-modules" : "python-dateutil==2.9.0,pytz==2024.1,openpyxl==3.1.3,boto3>=1.28",
+    "--enable-observability-metrics" : "false",
     "--enable-glue-datacatalog" : "true",
-    "library-set" : "analytics"
+    "library-set" : "analytics",
+    "--job-language" : "python",
+    "--TempDir" : "s3://aws-glue-assets-123073001123-us-east-1/temporary/"
   },
   "maxRetries" : 0,
   "allocatedCapacity" : 0,

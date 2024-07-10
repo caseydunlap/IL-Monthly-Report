@@ -64,7 +64,7 @@ jira_url = "https://hhaxsupport.atlassian.net"
 api_endpoint = "/rest/api/3/search/"
 
 #JQL query to fetch all in scope issues
-jql_query = """project in (HHA,ESD,RCOSD,EAS) and ("Primary Location" ~ IL OR "HHAX Market" ~ IL OR "State" = IL) and (created >= '2024-06-01' and created < '2024-07-01') ORDER BY created ASC"""
+jql_query = """project in (HHA, ESD, RCOSD, EAS) AND ("Primary Location" ~ IL OR "HHAX Market" ~ IL OR "State" = IL) AND (created >= startOfMonth(-1) AND created < startOfMonth()) ORDER BY created ASC"""
 
 jql_query_encoded = urllib.parse.quote(jql_query)
 
@@ -425,13 +425,24 @@ aggregated_df['ABANDONED_RATE'] = (((aggregated_df['CONTACTS_ABANDONED'] / aggre
 aggregated_df.drop(columns=['AVG_QUEUE_ANSWER_TIME'],inplace=True)
 aggregated_df.columns = aggregated_df.columns.str.upper()
 
-#Write the stage definitions, store in a pandas dataframe
-stages = '''
-Resolved=Done
-Closed = Almost Done
-On Hold = Project on Hold'''
-stages_lines = stages.strip().split('\n')
-stages_df = pd.DataFrame(stages_lines, columns=['Stages'])
+#s3 config 
+s3_bucket = 'aws-glue-assets-bianalytics'
+s3_key = 'Ticket_Stages.xlsx'
+
+#Download stages file from s3
+def download_from_s3(bucket, key):
+    s3_client = boto3.client('s3')
+    try:
+        response = s3_client.get_object(Bucket=bucket, Key=key)
+        return response['Body'].read()
+    except Exception as e:
+        print(f"Error downloading from S3: {e}")
+        return None
+
+# Download the private key file from S3
+stages_file = download_from_s3(s3_bucket, s3_key)
+
+stages_df = pd.read_excel(io.BytesIO(stages_file))
 
 aggregated_df = aggregated_df[['MONTH','NAME','CONTACTS_QUEUED', 'CONTACTS_ABANDONED','ABANDONED_RATE','AVG_ANSWER_TIME (MINS)']]
 
@@ -441,7 +452,7 @@ aggregated_df.columns = aggregated_df.columns.str.lower()
 
 #Map all of the previously created dataframes to their eventual excel tab name
 csv_mappings = {
-    'Stages':stages_df,
+    'Statuses':stages_df,
     'JIRA':merged_jira_df,
     'JIRA Summary':pivot_data,
     'AWS':aggregated_df}
@@ -455,15 +466,26 @@ excel_buffer = io.BytesIO()
 #Write the pandas dataframes to a single excel file
 with pd.ExcelWriter(excel_buffer, engine='openpyxl') as excel_writer:
     for sheet_name, dataframe in csv_mappings.items():
-        if sheet_name == 'Stages':
-            dataframe.to_excel(excel_writer, sheet_name=sheet_name, index=False, header=False)
+        if sheet_name == 'Statuses':
+            dataframe.to_excel(excel_writer, sheet_name=sheet_name, index=False, header=True)
         else:
             index_param = True if sheet_name == 'JIRA Summary' else False
             dataframe.to_excel(excel_writer, sheet_name=sheet_name, index=index_param)
     
+    #Adjust column widths
     workbook = excel_writer.book
-    worksheet = workbook['Stages']
+    worksheet = workbook['Statuses']
     worksheet.column_dimensions['A'].width = 50
+    worksheet.column_dimensions['B'].width = 100
+    worksheet.column_dimensions['C'].width = 150
+    worksheet = workbook['JIRA Summary']
+    worksheet.column_dimensions['A'].width = 50
+    worksheet = workbook['JIRA']
+    worksheet.column_dimensions['B'].width = 50
+    worksheet.column_dimensions['C'].width = 50
+    worksheet.column_dimensions['H'].width = 50
+    worksheet.column_dimensions['I'].width = 50
+    worksheet.column_dimensions['J'].width = 50
     
 excel_buffer.seek(0)
 
@@ -494,8 +516,9 @@ access_token = response.json().get('access_token')
 #The email is going to come from my email
 from_email = 'mdunlap@hhaexchange.com'
 #Email recipients
-to_email = ['cward@hhaexchange.com', 'dsweeney@hhaexchange.com','tprause@hhaexchange.com','sbowen@hhaexchange.com']
-subject = 'TEST - IL Monthly Report' + ' '+ '-' +' '+ date_string
+#to_email = ['cward@hhaexchange.com', 'dsweeney@hhaexchange.com','tprause@hhaexchange.com','sbowen@hhaexchange.com']
+to_email = ['mdunlap@hhaexchange.com','mhirrlinger@hhaexchange.com']
+subject = 'IL Monthly Report' + ' '+ '-' +' '+ date_string
 body = 'IL Monthly Report' + ' '+ '-' + ' '+ date_string
 
 email_recipients = [{"emailAddress": {"address": email}} for email in to_email]
