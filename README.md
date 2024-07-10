@@ -22,6 +22,7 @@ The script runs once a month, specifically on the 1st of each month at 8am EST. 
 Contains definitions for each applicable stage for ticket project types (HHA, RCOSD, ESD, EISD, EAS).
 
 ### JIRA
+
 A comprehensive report of all tickets created in Illinois within the reporting month, including the following fields:
   key: A unique identifier for each ticket.
   reporter: External party who raised the issue with HHAeXchange.
@@ -41,14 +42,16 @@ A comprehensive report of all tickets created in Illinois within the reporting m
   response_time_(mins): The amount of time, in minutes, it took for HHAeXchange to respond to the provider's issue.
 
 ### JIRA Summary
+
 A report summarizing tickets created by day within the reporting period, pivoted by project type. It includes a 'closed' column, capturing the number of tickets created on that day that are closed or resolved as of the time of report compilation.
 
 ### AWS
+
 A report aggregating the number of contacts queued, contacts abandoned, abandoned rate, and average answer time in minutes in the Illinois dedicated queue during the reporting month. The abandoned rate is calculated as contacts abandoned divided by contacts queued.
 
 ## Known Issues
 
-**No known issues at the moment.**
+No known issues at the moment.
 
 ## Contacts
 
