@@ -6,7 +6,7 @@
 
 ## Prerequisites
 
-Use must have an application capable of reading files with an .XLSX extension (Microsoft Excel, Apple Numbers, OpenOffice calc)
+User must have an application capable of reading files with an .XLSX extension (Microsoft Excel, Apple Numbers, OpenOffice calc)
 
 ## Setup and Installation
 
