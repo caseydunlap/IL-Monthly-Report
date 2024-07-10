@@ -14,7 +14,7 @@ Since there is no specific setup or installation process required, this tool wil
 
 ## Usage
 
-**The script runs once a month, specifically on the 1st of each month at 8am EST. Reports are generated and sent via email.**
+The script runs once a month, specifically on the 1st of each month at 8am EST. Reports are generated and sent via email.**
 
 ## File Tabs
 ### Statuses
