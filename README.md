@@ -4,10 +4,6 @@
 
 **IL Monthly Report** is a reporting automation tool designed to calculate and report various customer support metrics on a monthly basis. The tool streamlines report creation, adheres to a predictable schedule, and provides increased transparency to state stakeholders.
 
-## Prerequisites
-
-User must have an application capable of reading files with an .XLSX extension (Microsoft Excel, Apple Numbers, OpenOffice calc)
-
 ## Setup and Installation
 
 Since there is no specific setup or installation process required, this tool will be delivered to internal HHA stakeholders for further delivery to external state stakeholders.
