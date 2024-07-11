@@ -6,7 +6,7 @@
 
 ## Setup and Installation
 
-Since there is no specific setup or installation process required, this tool will be delivered to internal HHA stakeholders for further delivery to external state stakeholders.
+Since there is no specific setup or installation process required, this output from this script will be delivered to internal HHA stakeholders for further delivery to external state stakeholders.
 
 ## Usage
 
