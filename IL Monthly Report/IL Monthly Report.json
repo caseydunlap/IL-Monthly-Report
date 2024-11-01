@@ -13,7 +13,7 @@
   },
   "defaultArguments" : {
     "--enable-job-insights" : "false",
-    "--additional-python-modules" : "python-dateutil==2.9.0,pytz==2024.1,openpyxl==3.1.3,boto3>=1.28",
+    "--additional-python-modules" : "python-dateutil==2.9.0,pytz==2024.1,openpyxl==3.1.3,boto3>=1.28,cryptography==42.0.8,snowflake-connector-python==3.10.0",
     "--enable-observability-metrics" : "false",
     "--enable-glue-datacatalog" : "true",
     "library-set" : "analytics",

@@ -13,6 +13,9 @@ import re
 import io
 from io import BytesIO
 import base64
+import snowflake.connector
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.serialization import load_pem_private_key, load_der_private_key
 
 #Function to fetch secrets from Secrets Manager
 def get_secrets(secret_names, region_name="us-east-1"):
@@ -42,7 +45,7 @@ def extract_secret_value(data):
         return json.loads(data)
     return data
 
-secrets = ['graph_secret_email_auto','graph_client_email_auto','graph_tenant_id','jira_api_token','email','aws_other_instance_id','aws_secret_key','aws_access_key','aws_arn']
+secrets = ['graph_secret_email_auto','graph_client_email_auto','graph_tenant_id','jira_api_token','email','snowflake_bizops_user','snowflake_account','snowflake_key_pass','snowflake_bizops_wh','snowflake_salesmarketing_schema','snowflake_fivetran_db','snowflake_bizops_role']
 
 fetch_secrets = get_secrets(secrets)
 
@@ -55,19 +58,75 @@ graph_secret = extracted_secrets['graph_secret_email_auto']['graph_secret_email_
 graph_client_id = extracted_secrets['graph_client_email_auto']['graph_client_email_auto']
 graph_tenant_id = extracted_secrets['graph_tenant_id']['graph_tenant_id']
 jira_user = extracted_secrets['email']['email']
-aws_secret_key = extracted_secrets['aws_secret_key']['aws_secret_key']
-aws_instance_id = extracted_secrets['aws_other_instance_id']['aws_other_instance_id']
-aws_access_key = extracted_secrets['aws_access_key']['aws_access_key']
-aws_arn = extracted_secrets['aws_arn']['aws_arn']
+snowflake_user = extracted_secrets['snowflake_bizops_user']['snowflake_bizops_user']
+snowflake_account = extracted_secrets['snowflake_account']['snowflake_account']
+snowflake_key_pass = extracted_secrets['snowflake_key_pass']['snowflake_key_pass']
+snowflake_bizops_wh = extracted_secrets['snowflake_bizops_wh']['snowflake_bizops_wh']
+snowflake_schema = extracted_secrets['snowflake_salesmarketing_schema']['snowflake_salesmarketing_schema']
+snowflake_fivetran_db = extracted_secrets['snowflake_fivetran_db']['snowflake_fivetran_db']
+snowflake_role = extracted_secrets['snowflake_bizops_role']['snowflake_bizops_role']
+
+password = snowflake_key_pass.encode()
+
+#AWS S3 Configuration params
+s3_bucket = 'aws-glue-assets-bianalytics'
+s3_key = 'BIZ_OPS_ETL_USER.p8'
+
+#Function to download file from S3
+def download_from_s3(bucket, key):
+    s3_client = boto3.client('s3')
+    try:
+        response = s3_client.get_object(Bucket=bucket, Key=key)
+        return response['Body'].read()
+    except Exception as e:
+        print(f"Error downloading from S3: {e}")
+        return None
+
+#Download the private key file from S3
+key_data = download_from_s3(s3_bucket, s3_key)
+
+#Try loading the private key as PEM
+private_key = load_pem_private_key(key_data, password=password)
+
+#Extract the private key bytes in PKCS8 format
+private_key_bytes = private_key.private_bytes(
+    encoding=serialization.Encoding.DER,
+    format=serialization.PrivateFormat.PKCS8,
+    encryption_algorithm=serialization.NoEncryption()
+)
+
+#Get today in est
+eastern = pytz.timezone('America/New_York')
+today = datetime.now(eastern)
+
+#Establish the bounds of the calendar dataframe
+last_day_last_month = (today - relativedelta(days=1)).date().strftime('%Y-%m-%d')
+first_day_in_series = (today - relativedelta(months=2)).date().strftime('%Y-%m-%d')
+
+#Create the calendar dataframe
+date_range = pd.date_range(start=first_day_in_series, end=last_day_last_month, freq='MS')
+calendar_df = pd.DataFrame({
+    'month_start': date_range,
+    'month_end': date_range + pd.offsets.MonthEnd()
+})
+
+#Create columns to store dates as strings
+calendar_df['month_start_str'] = calendar_df['month_start'].dt.strftime('%Y-%m-%d')
+calendar_df['month_end_str'] = calendar_df['month_end'].dt.strftime('%Y-%m-%d') 
+
+#Extract values from calendar dataframe to use in api request
+start = calendar_df.iloc[0, 2]
+end = calendar_df.iloc[1, 3]
+start_res = calendar_df.iloc[1, 2]
 
 jira_url = "https://hhaxsupport.atlassian.net"
 api_endpoint = "/rest/api/3/search/"
 
 #JQL query to fetch all in scope issues
-jql_query = """project in (HHA, ESD, RCOSD, EAS) AND ("Primary Location" ~ IL OR "HHAX Market" ~ IL OR "State" = IL) AND (created >= startOfMonth(-1) AND created < startOfMonth()) ORDER BY created ASC"""
+jql_query = f"""project in (HHA, ESD, RCOSD, EAS) AND ("Primary Location" ~ IL OR "HHAX Market" ~ IL OR "State" = IL) AND ((created >= "{start}" AND created <= "{end}") or (resolved >= "{start_res}" AND resolved <= "{end}")) 
+ORDER BY created ASC"""
 
 jql_query_encoded = urllib.parse.quote(jql_query)
-
 startAt = 0
 maxResults = 100
 
@@ -165,10 +224,16 @@ if isinstance(issues, list):
         else:
             response_time = None
 
-        data.append([key,response_time,reporter,hhax_regional_platform_tag,state,primary_location,hhax_market,associations,created,resolved,updated,payer,status_snapshot,summary,tax_id])
+        resolved_time = (issue['fields'].get('customfield_10030', {}).get('completedCycles', []))
+        if resolved_time:
+            resolved_time = resolved_time[0].get('elapsedTime', {}).get('millis')
+        else:
+            resolved_time = None
 
-    df = pd.DataFrame(data, columns=['key','response_time','reporter','hhax_platform_region_tag','state','primary_location','hhax_market','associations','create_date','resolved_date','updated','payer','status','summary','tax_id'])
+        data.append([key,response_time,resolved_time,reporter,hhax_regional_platform_tag,state,primary_location,hhax_market,associations,created,resolved,updated,payer,status_snapshot,summary,tax_id])
 
+    df = pd.DataFrame(data, columns=['key','response_time','resolved_time','reporter','hhax_platform_region_tag','state','primary_location','hhax_market','associations','create_date','resolved_date','updated','payer','status','summary','tax_id'])
+    
 #Store each key from the first JSON payload in a list
 keys = list(df['key'])
 
@@ -203,7 +268,7 @@ for key in keys:
         else:
             break
 
-#Build a function to extract n comments for each issue
+#Build a function to extract n comments from each issue
 def extract_comment_texts_dates_for_dataframe(issues, num_comments_per_issue):
     comments_data = []
 
@@ -234,6 +299,7 @@ def extract_comment_texts_dates_for_dataframe(issues, num_comments_per_issue):
 #Use a 50 comment assumption
 num_comments_per_issue = 50
 extracted_comments = extract_comment_texts_dates_for_dataframe(comments, num_comments_per_issue)
+
 #Store extracted comments in a pandas dataframe
 comments_df = pd.DataFrame(extracted_comments)
 
@@ -278,158 +344,74 @@ isolated_pivoted_df = pivoted_df[['issue_key','contains_phrase']]
 #Merge the dataframe from the initial jira request with the dataframe with the comment data
 merged_jira_df = pd.merge(df,isolated_pivoted_df,left_on='key',right_on='issue_key')
 
-#Convert the response time sla value from milliseconds to minutes
-merged_jira_df['response_time_(mins)'] = merged_jira_df['response_time']/60000
-
-#Start to build the JIRA summary table
-summary_df = merged_jira_df
-
-summary_df['create_date'] = pd.to_datetime(summary_df['create_date']).dt.date
-summary_df['resolved_date'] = pd.to_datetime(summary_df['resolved_date'], errors='coerce').dt.date
-
-#Extract the project prefix for aggregation
-summary_df['project_prefix'] = summary_df['key'].apply(lambda x: re.match(r'^[A-Z]+', x).group(0) if re.match(r'^[A-Z]+', x) else '')
-
-pivot_data = summary_df.groupby(['create_date', 'project_prefix'])['key'].count().reset_index()
-
-pivot_data = pd.pivot_table(
-    pivot_data,
-    index='create_date',
-    columns='project_prefix',
-    values='key',
-    aggfunc='sum',
-    fill_value=0
-)
-
-pivot_data['created'] = summary_df.groupby('create_date')['key'].count()
-#Of the tickets created on that date, how many are now closed?
-pivot_data['closed'] = summary_df[summary_df['resolved_date'].notna()].groupby('create_date')['key'].count().reindex(pivot_data.index, fill_value=0)
-#Convert timestamps to date datatype
-merged_jira_df['create_date'] = pd.to_datetime(merged_jira_df['create_date']).dt.date
-merged_jira_df['resolved_date'] = pd.to_datetime(merged_jira_df['resolved_date'], errors='coerce').dt.date
-merged_jira_df['updated'] = pd.to_datetime(merged_jira_df['updated'], errors='coerce').dt.date
-
-merged_jira_df.drop(columns=['issue_key','response_time','project_prefix'],inplace=True)
-
 merged_jira_df = merged_jira_df.rename(columns={'contains_phrase': 'closed_via_automation'})
 
-#Create a boto3 session
-session = boto3.Session(
-    aws_access_key_id=aws_access_key,
-    aws_secret_access_key=aws_secret_key,
-    region_name='us-east-1')
-
-connect_client = session.client('connect',endpoint_url='https://connect.us-east-1.amazonaws.com')
-
-queues = connect_client.list_queues(InstanceId='2985c653-8593-4835-a64e-5ae84d77f978',QueueTypes=['STANDARD'])
-
-#Fetch all instance queue data for use later
-queue_df = pd.DataFrame(queues['QueueSummaryList'])
-
-today = datetime.now()
-#Start date for report is first day of previous month
-first_of_month = today - relativedelta(months=1)
-#End date for report is last day of previous month
-end_of_month = today - timedelta(days=1)
-
-#Localize, and ensure we are capturing all data in range
-eastern = pytz.timezone('US/Eastern')
-start_date = eastern.localize(datetime.combine(first_of_month, datetime.min.time()))
-end_date = eastern.localize(datetime.combine(end_of_month, datetime.max.time()))
-
-data = []
-
-current_date = start_date
-
-#Get AWS data for each day in the stated range
-while current_date <= end_date:
-    next_date = current_date + timedelta(days=1)
+#Get latest call center data from Snowflake
+ctx = snowflake.connector.connect(
+    user=snowflake_user,
+    account=snowflake_account,
+    private_key=private_key_bytes,
+    role=snowflake_role,
+    warehouse=snowflake_bizops_wh)
     
-    response = connect_client.get_metric_data_v2(
-        ResourceArn=f'arn:aws:connect:us-east-1:{aws_arn}:instance/{aws_instance_id}',
-        StartTime=current_date,
-        EndTime=next_date,
-        Filters=[
-            {
-                'FilterKey': 'QUEUE',
-                'FilterValues': ['97c6b15c-2464-41da-a6c0-4d1be020d607'] 
-            },
-        ],
-        Groupings=['QUEUE'],
-        Metrics=[
-            {
-                'Name': 'CONTACTS_QUEUED',
-            },
-            {
-                'Name': 'AVG_QUEUE_ANSWER_TIME',
-            },
-            {
-                'Name': 'CONTACTS_ABANDONED',
-            },
-        ],
-        MaxResults=100
-    )
+today = datetime.now().date()
     
-    #Parse JSON payload, store results
-    for metric_result in response.get('MetricResults', []):
-        queue_id = metric_result['Dimensions']['QUEUE']
-        for metric_data in metric_result.get('Collections', []):
-            metric_name = metric_data.get('Metric', {}).get('Name', 'Unknown')
-            try:
-                value = metric_data['Value']
-            except KeyError:
-                value = 0
-            data.append([current_date.date(), queue_id, metric_name, value])
-    
-    current_date = next_date
+cs = ctx.cursor()
+script = f"""
+with 
+regular_queue_data as (
+select 
+coalesce(sum(contacts_queued),0) as contacts_queued,
+coalesce(sum(contacts_abandoned),0) as contacts_abandoned,
+coalesce(sum(contacts_handled),0) as contacts_handled,
+concat((round((sum(contacts_abandoned)/sum(contacts_queued)),2)*100),'%') as abandoned_rate,
+coalesce(sum(contacts_answered_in_30),0) as contacts_answered_in_30_secs,
+concat((round((sum(contacts_answered_in_30)/sum(contacts_handled)),2)*100),'%') as contacts_answered_in_30_secs_pct,
+coalesce((avg(average_queue_answer_time)/60),0) as avg_answer_time_mins
+from (select contacts_queued,contacts_abandoned,contacts_handled,contacts_answered_in_30,average_queue_answer_time from PC_FIVETRAN_DB.DBT_SALESANDMARKETING_DEPLOYMENT.FACT_UIVR
+where state = 'IL' and lower(queue_name) not like '%callback%' and date_from_parts(initiation_year,initiation_month,initiation_day) >= '{start_res}' and date_from_parts(initiation_year,initiation_month,initiation_day) < '{today}')),
 
-#Pandas dataframe with parsed AWS JSON payload data
-phone_df_temp = pd.DataFrame(data, columns=['Date','Queue_ID','MetricName', 'Value'])
+callback_data as (
+select 
+coalesce(sum(contacts_queued),0) as contacts_queued,
+coalesce(sum(contacts_abandoned),0) as contacts_abandoned,
+coalesce(sum(contacts_handled),0) as contacts_handled,
+concat((round((sum(contacts_abandoned)/sum(contacts_queued)),2)*100),'%') as abandoned_rate,
+coalesce(sum(contacts_answered_in_30),0) as contacts_answered_in_30_secs,
+concat((round((sum(contacts_answered_in_30)/sum(contacts_handled)),2)*100),'%') as contacts_answered_in_30_secs_pct,
+coalesce((avg(average_queue_answer_time)/60),0) as avg_answer_time_mins
+from (select contacts_queued,contacts_abandoned,contacts_handled,contacts_answered_in_30,average_queue_answer_time from PC_FIVETRAN_DB.DBT_SALESANDMARKETING_DEPLOYMENT.FACT_UIVR
+where state = 'IL' and lower(queue_name) like '%callback%' and date_from_parts(initiation_year,initiation_month,initiation_day) >= '{start_res}' and date_from_parts(initiation_year,initiation_month,initiation_day) < '{today}'))
 
-phone_df_temp.columns = phone_df_temp.columns.str.upper()
+select * from regular_queue_data
+union all
+select * from callback_data
+"""
+payload = cs.execute(script)
+phone_df = pd.DataFrame.from_records(iter(payload), columns=[x[0] for x in payload.description])
 
-#Function to rename some column names
-def custom_rename(column_name):
-    if column_name == "DATE":
-        return "Date"
-    elif column_name == "METRICNAME":
-        return "MetricName"
-    elif column_name == "VALUE":
-        return "Value"
-    elif column_name == "QUEUE_ID":
-        return "Queue_ID"
-    else:
-        return column_name
+#Do some data cleanup of call center dataframe
+phone_df['MONTH'] = start_res
+phone_df.loc[0:1, 'NAME'] = ['Illinois', 'Illinois-Callback']
 
-phone_df = phone_df_temp.rename(columns=custom_rename)
+col_order = ['MONTH','NAME','CONTACTS_QUEUED','CONTACTS_ABANDONED','CONTACTS_HANDLED','ABANDONED_RATE','CONTACTS_ANSWERED_IN_30_SECS','CONTACTS_ANSWERED_IN_30_SECS_PCT','AVG_ANSWER_TIME_MINS']
 
-phone_df_with_queue_names = phone_df.merge(queue_df[['Id', 'Name']], left_on='Queue_ID', right_on = 'Id',how='inner')
+aggregated_df = phone_df[col_order]
 
-pivoted_phone_df_with_queue_names = phone_df_with_queue_names.pivot(index=['Date','Name','Queue_ID'], columns='MetricName', values='Value').reset_index()
+aggregated_df['AVG_ANSWER_TIME(mins)'] = aggregated_df['AVG_ANSWER_TIME_MINS'].astype(float)
+aggregated_df['AVG_ANSWER_TIME(mins)'] = aggregated_df['AVG_ANSWER_TIME(mins)'].round(2)
 
-pivoted_phone_df_with_queue_names['MONTH'] = pd.to_datetime(pivoted_phone_df_with_queue_names['Date']).dt.to_period('M')
+aggregated_df = aggregated_df.rename(columns={'NAME': 'QUEUE'})
 
-#Aggregate the daily date to monthly level of detail
-aggregated_df = pivoted_phone_df_with_queue_names.groupby(['MONTH', 'Name']).agg({
-    'AVG_QUEUE_ANSWER_TIME': 'mean',
-    'CONTACTS_ABANDONED': 'sum',
-    'CONTACTS_QUEUED': 'sum'
-}).reset_index()
+aggregated_df.columns = aggregated_df.columns.str.lower()
 
-#Convert seconds to minutes
-aggregated_df['AVG_ANSWER_TIME (mins)'] = (aggregated_df['AVG_QUEUE_ANSWER_TIME']/60).round(2)
+aggregated_df.drop(columns={'avg_answer_time_mins'},inplace=True)
 
-#Calculate the abandoned rate
-aggregated_df['ABANDONED_RATE'] = (((aggregated_df['CONTACTS_ABANDONED'] / aggregated_df['CONTACTS_QUEUED']) * 100).round(2)).astype(str) + '%'
-
-aggregated_df.drop(columns=['AVG_QUEUE_ANSWER_TIME'],inplace=True)
-aggregated_df.columns = aggregated_df.columns.str.upper()
-
-#s3 config 
+#s3 information to extract ticket stage definitions
 s3_bucket = 'aws-glue-assets-bianalytics'
 s3_key = 'Ticket_Stages.xlsx'
 
-#Download stages file from s3
+#Function to download stages file from s3
 def download_from_s3(bucket, key):
     s3_client = boto3.client('s3')
     try:
@@ -439,26 +421,121 @@ def download_from_s3(bucket, key):
         print(f"Error downloading from S3: {e}")
         return None
 
-# Download the private key file from S3
+#Download the stages file from S3
 stages_file = download_from_s3(s3_bucket, s3_key)
 
+#Make stages file into dataframe
 stages_df = pd.read_excel(io.BytesIO(stages_file))
 
-aggregated_df = aggregated_df[['MONTH','NAME','CONTACTS_QUEUED', 'CONTACTS_ABANDONED','ABANDONED_RATE','AVG_ANSWER_TIME (MINS)']]
+#Establish date bounds for subsequent dataframes
+start_filter = calendar_df.iloc[1, 0].date()
+end_filter_last = calendar_df.iloc[0, 0].date()
 
-aggregated_df = aggregated_df.rename(columns={'Name': 'QUEUE'})
+#Convert milliseconds into minutes
+merged_jira_df['elapsed_time_resolved_mins'] = merged_jira_df['resolved_time']/60000
+merged_jira_df['elapsed_time_response_mins'] = merged_jira_df['response_time']/60000
 
-aggregated_df.columns = aggregated_df.columns.str.lower()
+#Convert datetime dates to dates for easy pivot and aggregation
+merged_jira_df['created'] = pd.to_datetime(merged_jira_df['create_date'], utc=True)
+merged_jira_df['created'] = merged_jira_df['created'].dt.tz_convert('US/Eastern')
+merged_jira_df['created'] = pd.to_datetime(merged_jira_df['created']).dt.date
+merged_jira_df['resolved'] = pd.to_datetime(merged_jira_df['resolved_date'], utc=True)
+merged_jira_df['resolved'] = merged_jira_df['resolved'].dt.tz_convert('US/Eastern')
+merged_jira_df['resolved'] = pd.to_datetime(merged_jira_df['resolved']).dt.date
+
+#Isolated created and resolved dataframes for reporting period
+current_create_filtered_df = merged_jira_df[merged_jira_df['created'] >= start_filter]
+current_resolved_filtered_df = merged_jira_df[merged_jira_df['resolved'] >= start_filter]
+
+#Isolate created dataframe from reporting month minus 1
+last_create_filtered_df = merged_jira_df[(merged_jira_df['created'] < start_filter) & (merged_jira_df['created'] >= end_filter_last)]
+
+#Extract the project prefix, aggregate and pivot results for created and resolved dataframes
+current_create_filtered_df['prefix'] = current_create_filtered_df['key'].str.split('-').str[0]
+current_resolved_filtered_df['prefix'] = current_resolved_filtered_df['key'].str.split('-').str[0]
+grouped_created_df = current_create_filtered_df.groupby(['prefix', 'created']).size().reset_index(name='count')
+pivoted_created_df = grouped_created_df.pivot(index='created', columns='prefix', values='count').reset_index()
+pivoted_created_df.fillna(0, inplace=True)
+pivoted_created_df['Total'] = pivoted_created_df.select_dtypes(include=['int64', 'float64']).sum(axis=1)
+grouped_resolved_df = current_resolved_filtered_df.groupby(['prefix', 'resolved']).size().reset_index(name='count')
+pivoted_resolved_df = grouped_resolved_df.pivot(index='resolved', columns='prefix', values='count').reset_index()
+pivoted_resolved_df.fillna(0, inplace=True)
+pivoted_resolved_df['Total'] = pivoted_resolved_df.select_dtypes(include=['int64', 'float64']).sum(axis=1)
+
+#Conduct the match exercise to determine reporters that have opened tickets in both the reporting month and reporting month minus 1
+current_create_filtered_df['has_match'] = current_create_filtered_df['reporter'].isin(last_create_filtered_df['reporter'])
+last_create_filtered_df['has_match'] = last_create_filtered_df['reporter'].isin(current_create_filtered_df['reporter'])
+
+#Start building the month over month matches dataframe
+last_w_matches = last_create_filtered_df[last_create_filtered_df['has_match']].copy()
+key_cols = ['tax_id', 'associations', 'key','created','resolved','status','summary']
+grouped = last_w_matches.groupby('reporter').agg({
+    col: lambda x: ', '.join(x.astype(str)) for col in key_cols
+}).reset_index()
+
+#Add '_Last' suffix to column names except reporter column to help in interpretation
+new_columns = {col: f'{col}_Last' for col in grouped.columns if col != 'reporter'}
+grouped = grouped.rename(columns=new_columns)
+
+this_w_matches = current_create_filtered_df[current_create_filtered_df['has_match']].copy()
+key_cols_tm = ['tax_id', 'associations', 'key','created','resolved','status','summary']
+grouped_tm = this_w_matches.groupby('reporter').agg({
+    col: lambda x: ', '.join(x.astype(str)) for col in key_cols_tm
+}).reset_index()
+
+#Add '_Reporting suffix to column names except reporter column to help in interpretation
+new_columns_tm = {col: f'{col}_Reporting' for col in grouped_tm.columns if col != 'reporter'}
+grouped_tm = grouped_tm.rename(columns=new_columns_tm)
+
+matched_df = pd.merge(grouped,grouped_tm,left_on='reporter',right_on='reporter')
+
+#Conduct SLA test, build SLA summary dataframe
+current_resolved_filtered_df['resolved_10_bd'] = current_resolved_filtered_df['elapsed_time_resolved_mins'] <= 14400
+
+pivoted_sla_table = current_resolved_filtered_df[current_resolved_filtered_df['prefix'] != 'RCOSD'].groupby(['prefix']).agg(
+    closed=('prefix', 'size'),
+    met_sla=('resolved_10_bd', 'sum')
+).reset_index()
+
+pivoted_sla_table['pct'] = pivoted_sla_table['met_sla'] / pivoted_sla_table['closed']
+pivoted_sla_table['pct'] = (pivoted_sla_table['pct'] * 100).round(2).astype(str) + '%'
+
+#Create total row for sla summary dataframe
+row_totals = pivoted_sla_table.agg({
+   'closed': 'sum',
+   'met_sla': 'sum'
+}).to_frame().T
+
+#Calculate aggregate sla percentage
+row_totals['pct'] = (row_totals['met_sla'] / row_totals['closed'] * 100).round(2).astype(str) + '%'
+
+#Add a prefix label for the totals row
+row_totals['prefix'] = 'Total'
+
+#Combine original sla dataframe with totals
+pivoted_sla_table_final = pd.concat([pivoted_sla_table, row_totals], ignore_index=True)
+
+pivoted_sla_table.rename(columns={'prefix':'project'},inplace=True)
+
+#Do some data cleanup
+current_create_filtered_df.drop(columns=['response_time','resolved_time','created','resolved','prefix','has_match','issue_key'],inplace=True)
+
+current_resolved_filtered_df.drop(columns=['response_time','resolved_time','created','resolved','prefix','issue_key'],inplace=True)
 
 #Map all of the previously created dataframes to their eventual excel tab name
 csv_mappings = {
     'Statuses':stages_df,
-    'JIRA':merged_jira_df,
-    'JIRA Summary':pivot_data,
+    'JIRA Created Details':current_create_filtered_df,
+    'JIRA Resolved Details':current_resolved_filtered_df,
+    'JIRA Created Summary':pivoted_created_df,
+    'JIRA Resolved Summary':pivoted_resolved_df,
+    'SLA Summary':pivoted_sla_table_final,
+    'MoM Matches':matched_df,
     'AWS':aggregated_df}
 
-#Build the email date string for dynamic file naming and subjects, use the dates from the AWS call center request
-reporting_month = start_date.strftime('%B %Y')
+#Build the email date string for dynamic file naming and subjects, use the dates from the calendar dataframe
+reporting_month_dt = datetime.strptime(start_res, '%Y-%m-%d')
+reporting_month = reporting_month_dt.strftime('%B %Y')
 date_string = str(reporting_month)
 
 excel_buffer = io.BytesIO()
@@ -469,7 +546,7 @@ with pd.ExcelWriter(excel_buffer, engine='openpyxl') as excel_writer:
         if sheet_name == 'Statuses':
             dataframe.to_excel(excel_writer, sheet_name=sheet_name, index=False, header=True)
         else:
-            index_param = True if sheet_name == 'JIRA Summary' else False
+            index_param = False
             dataframe.to_excel(excel_writer, sheet_name=sheet_name, index=index_param)
     
     #Adjust column widths
@@ -478,9 +555,17 @@ with pd.ExcelWriter(excel_buffer, engine='openpyxl') as excel_writer:
     worksheet.column_dimensions['A'].width = 50
     worksheet.column_dimensions['B'].width = 100
     worksheet.column_dimensions['C'].width = 150
-    worksheet = workbook['JIRA Summary']
+    worksheet = workbook['JIRA Resolved Summary']
     worksheet.column_dimensions['A'].width = 50
-    worksheet = workbook['JIRA']
+    worksheet = workbook['JIRA Created Summary']
+    worksheet.column_dimensions['A'].width = 50
+    worksheet = workbook['JIRA Created Details']
+    worksheet.column_dimensions['B'].width = 50
+    worksheet.column_dimensions['C'].width = 50
+    worksheet.column_dimensions['H'].width = 50
+    worksheet.column_dimensions['I'].width = 50
+    worksheet.column_dimensions['J'].width = 50
+    worksheet = workbook['JIRA Resolved Details']
     worksheet.column_dimensions['B'].width = 50
     worksheet.column_dimensions['C'].width = 50
     worksheet.column_dimensions['H'].width = 50
@@ -497,7 +582,7 @@ client_id = graph_client_id
 client_secret = graph_secret
 tenant_id = graph_tenant_id
 
-#Build the request to get access token from graph oauth endpoint
+#Fetch access token from graph oauth endpoint
 url = f"https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token"
 headers = {
     'Content-Type': 'application/x-www-form-urlencoded'
@@ -510,13 +595,14 @@ data = {
 }
 response = requests.post(url, headers=headers, data=data)
 response.raise_for_status()
+
 #Parse the access token from the JSON payload, store value for email send request
 access_token = response.json().get('access_token')
 
-#The email is going to come from my email
-from_email = 'mdunlap@hhaexchange.com'
-#Email recipients
-to_email = ['cward@hhaexchange.com', 'dsweeney@hhaexchange.com','tprause@hhaexchange.com','sbowen@hhaexchange.com']
+#Service account email address
+from_email = 'bi-analytics@hhaexchange.com'
+#List of internal email recipients
+to_email = ['mdunlap@hhaexchange.com','dsweeney@hhaexchange.com','jmonserrat@hhaexchange.com','sbowen@hhaexchange.com','tprause@hhaexchange.com']
 subject = 'IL Monthly Report' + ' '+ '-' +' '+ date_string
 body = 'IL Monthly Report' + ' '+ '-' + ' '+ date_string
 
@@ -551,3 +637,4 @@ headers = {
 #Send the email with the excel attachment
 response = requests.post(send_mail_url, headers=headers, json=email_msg)
 response.raise_for_status()
+ctx.close()
