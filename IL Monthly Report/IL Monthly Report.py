@@ -466,28 +466,13 @@ pivoted_resolved_df['Total'] = pivoted_resolved_df.select_dtypes(include=['int64
 current_create_filtered_df['has_match'] = current_create_filtered_df['reporter'].isin(last_create_filtered_df['reporter'])
 last_create_filtered_df['has_match'] = last_create_filtered_df['reporter'].isin(current_create_filtered_df['reporter'])
 
-#Start building the month over month matches dataframe
+#Build month over month view
+key_cols = ['reporter','tax_id', 'associations', 'key','created','resolved','status','summary','hhax_platform_region_tag','state','primary_location','hhax_market']
 last_w_matches = last_create_filtered_df[last_create_filtered_df['has_match']].copy()
-key_cols = ['tax_id', 'associations', 'key','created','resolved','status','summary']
-grouped = last_w_matches.groupby('reporter').agg({
-    col: lambda x: ', '.join(x.astype(str)) for col in key_cols
-}).reset_index()
-
-#Add '_Last' suffix to column names except reporter column to help in interpretation
-new_columns = {col: f'{col}_Last' for col in grouped.columns if col != 'reporter'}
-grouped = grouped.rename(columns=new_columns)
-
+last_w_matches_final = last_w_matches.loc[:,key_cols]
 this_w_matches = current_create_filtered_df[current_create_filtered_df['has_match']].copy()
-key_cols_tm = ['tax_id', 'associations', 'key','created','resolved','status','summary']
-grouped_tm = this_w_matches.groupby('reporter').agg({
-    col: lambda x: ', '.join(x.astype(str)) for col in key_cols_tm
-}).reset_index()
-
-#Add '_Reporting suffix to column names except reporter column to help in interpretation
-new_columns_tm = {col: f'{col}_Reporting' for col in grouped_tm.columns if col != 'reporter'}
-grouped_tm = grouped_tm.rename(columns=new_columns_tm)
-
-matched_df = pd.merge(grouped,grouped_tm,left_on='reporter',right_on='reporter')
+this_w_matches_final = this_w_matches.loc[:,key_cols]
+final_matched_df = pd.concat([this_w_matches_final,last_w_matches_final])
 
 #Conduct SLA test, build SLA summary dataframe
 current_resolved_filtered_df['resolved_10_bd'] = current_resolved_filtered_df['elapsed_time_resolved_mins'] <= 14400
@@ -519,7 +504,6 @@ pivoted_sla_table.rename(columns={'prefix':'project'},inplace=True)
 
 #Do some data cleanup
 current_create_filtered_df.drop(columns=['response_time','resolved_time','created','resolved','prefix','has_match','issue_key'],inplace=True)
-
 current_resolved_filtered_df.drop(columns=['response_time','resolved_time','created','resolved','prefix','issue_key'],inplace=True)
 
 #Map all of the previously created dataframes to their eventual excel tab name
@@ -530,7 +514,7 @@ csv_mappings = {
     'JIRA Created Summary':pivoted_created_df,
     'JIRA Resolved Summary':pivoted_resolved_df,
     'SLA Summary':pivoted_sla_table_final,
-    'MoM Matches':matched_df,
+    'MoM Matches':final_matched_df,
     'AWS':aggregated_df}
 
 #Build the email date string for dynamic file naming and subjects, use the dates from the calendar dataframe
